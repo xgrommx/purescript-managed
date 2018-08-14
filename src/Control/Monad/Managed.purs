@@ -11,11 +11,13 @@ import Control.Monad.Reader (ReaderT)
 import Control.Monad.State (StateT)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Writer (WriterT)
+import Effect.Aff (Aff)
+import Effect.Aff.Class (class MonadAff)
 import Effect.Class (class MonadEffect, liftEffect)
 
-newtype Managed a = Managed(forall r e. MonadEffect e => (a -> e r) -> e r)
+newtype Managed a = Managed(forall r. (a -> Aff r) -> Aff r)
 
-unManaged :: forall a. Managed a -> (forall r e. MonadEffect e => (a -> e r) -> e r)
+unManaged :: forall a. Managed a -> (forall r. (a -> Aff r) -> Aff r)
 unManaged (Managed a) = a
 
 infixl 1 unManaged as >>-
@@ -36,6 +38,9 @@ instance monadManaged :: Monad Managed
 
 instance monadEffectManaged :: MonadEffect Managed where
   liftEffect m = Managed (\pure_ -> (liftEffect m) >>= pure_)
+
+instance monadAffManaged :: MonadAff Managed where
+  liftAff m = Managed (\pure_ -> m >>= pure_)
 
 instance semigroupManaged :: Semigroup a => Semigroup (Managed a) where
   append = lift2 append
@@ -79,14 +84,14 @@ instance monadManagedStateT :: MonadManaged m => MonadManaged (StateT s m) where
 instance monadManagedWriterT :: (Monoid w, MonadManaged m) => MonadManaged (WriterT w m) where
   using m = lift (using m)
 
-managed :: forall a. (forall r e. MonadEffect e => (a -> e r) -> e r) -> Managed a
+managed :: forall a. (forall r. (a -> Aff r) -> Aff r) -> Managed a
 managed x = Managed x
 
-managed_ :: (forall e r. MonadEffect e => e r -> e r) -> Managed Unit
+managed_ :: (forall r. Aff r -> Aff r) -> Managed Unit
 managed_ f = managed (\g -> f $ g unit)
 
-with :: forall a. Managed a -> (forall r e. MonadEffect e => (a -> e r) -> e r)
+with :: forall a. Managed a -> (forall r. (a -> Aff r) -> Aff r)
 with m k = m >>- k
 
-runManaged :: forall e. MonadEffect e => Managed Unit -> e Unit
+runManaged :: Managed Unit -> Aff Unit
 runManaged m = m >>- pure
